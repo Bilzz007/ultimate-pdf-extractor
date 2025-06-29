@@ -3,4 +3,5 @@ pdfplumber
 pandas
 python-docx
 openpyxl
+PyMuPDF
 Pillow
