@@ -18,8 +18,11 @@ uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
 if uploaded_file:
     st.success("PDF uploaded! Processing...")
 
+    # --- READ PDF INTO MEMORY BUFFER ---
+    pdf_bytes = uploaded_file.read()
+
     # --- TEXT & TABLES EXTRACTION (pdfplumber) ---
-    with pdfplumber.open(uploaded_file) as pdf:
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         all_text = ""
         tables = []
         for page_num, page in enumerate(pdf.pages, 1):
@@ -31,7 +34,7 @@ if uploaded_file:
     # --- IMAGES EXTRACTION (PyMuPDF) ---
     st.subheader("Extracted Images")
     images = []
-    doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     for page_num in range(len(doc)):
         for img_index, img in enumerate(doc.get_page_images(page_num)):
             xref = img[0]
