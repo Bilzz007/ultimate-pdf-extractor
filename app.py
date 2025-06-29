@@ -19,13 +19,18 @@ os.makedirs("feedback", exist_ok=True)
 uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
 
 def clean_text(text):
-    # Remove non-printable characters
-    text = ''.join(c if c.isprintable() else ' ' for c in text)
-    # Remove control chars except \n
-    text = re.sub(r'[^\x09\x0A\x0D\x20-\x7E\u00A0-\uFFFF]', '', text)
-    # Replace problematic surrogates
+    # Remove all characters not allowed in XML/Word (tab, CR, LF, BMP unicode)
+    def safe_char(c):
+        o = ord(c)
+        return (
+            o == 0x9 or o == 0xA or o == 0xD or
+            (0x20 <= o <= 0xD7FF) or (0xE000 <= o <= 0xFFFD)
+        )
+    text = ''.join(c if safe_char(c) else ' ' for c in text)
     text = text.encode("utf-8", "ignore").decode("utf-8", "ignore")
-    return text
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n\s*\n', '\n\n', text)
+    return text.strip()
 
 if uploaded_file:
     st.success("PDF uploaded! Processing...")
@@ -104,10 +109,10 @@ if uploaded_file:
                 doc.add_heading(f"Table {idx+1}", level=2)
                 t = doc.add_table(rows=df.shape[0]+1, cols=df.shape[1])
                 for j, col in enumerate(df.columns):
-                    t.cell(0, j).text = str(col)
+                    t.cell(0, j).text = clean_text(str(col))
                 for i, row in df.iterrows():
                     for j, val in enumerate(row):
-                        t.cell(i+1, j).text = str(val)
+                        t.cell(i+1, j).text = clean_text(str(val))
         doc.save(doc_buf)
         st.download_button(
             "Download Word File", doc_buf.getvalue(), "output.docx",
@@ -120,7 +125,9 @@ if uploaded_file:
         with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
             for idx, df in enumerate(edited_tables):
                 sheet_name = f"Table_{idx+1}"
-                df.to_excel(writer, index=False, sheet_name=sheet_name)
+                # Excel is more tolerant, but let's clean just in case
+                clean_df = df.applymap(lambda x: clean_text(str(x)))
+                clean_df.to_excel(writer, index=False, sheet_name=sheet_name)
         st.download_button(
             "Download Excel File", excel_buf.getvalue(), "output.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -142,4 +149,4 @@ else:
     st.info("Please upload a PDF to get started.")
 
 st.markdown("---")
-st.caption("v0.3 | Code Generator GPT · With OCR fallback for scanned/image PDFs and text cleaning for Word export.")
+st.caption("v0.3 | Code Generator GPT · With OCR fallback for scanned/image PDFs and bulletproof text cleaning for export.")
