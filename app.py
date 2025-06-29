@@ -6,6 +6,8 @@ import io
 import os
 import fitz  # PyMuPDF
 from PIL import Image
+import pytesseract
+from pdf2image import convert_from_bytes
 
 st.set_page_config(page_title="Ultimate PDF Data Extractor", layout="wide")
 st.title("Ultimate PDF Data Extractor")
@@ -21,13 +23,21 @@ if uploaded_file:
     # --- READ PDF INTO MEMORY BUFFER ---
     pdf_bytes = uploaded_file.read()
 
-    # --- TEXT & TABLES EXTRACTION (pdfplumber) ---
+    # --- TEXT & TABLES EXTRACTION (pdfplumber with OCR fallback) ---
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         all_text = ""
         tables = []
         for page_num, page in enumerate(pdf.pages, 1):
-            text = page.extract_text() or ""
-            all_text += f"\n--- Page {page_num} ---\n{text}"
+            text = page.extract_text()
+            if not text:
+                # OCR fallback if no text is found on the page
+                images_from_pdf = convert_from_bytes(pdf_bytes, first_page=page_num, last_page=page_num)
+                ocr_text = ""
+                for img in images_from_pdf:
+                    ocr_text += pytesseract.image_to_string(img)
+                all_text += f"\n--- Page {page_num} (OCR) ---\n{ocr_text}"
+            else:
+                all_text += f"\n--- Page {page_num} ---\n{text}"
             page_tables = page.extract_tables() or []
             tables.extend(page_tables)
 
@@ -42,7 +52,6 @@ if uploaded_file:
             image_bytes = base_image["image"]
             images.append(image_bytes)
             st.image(image_bytes, caption=f"Page {page_num+1} Image {img_index+1}")
-            # Download button for each image
             st.download_button(
                 label=f"Download Image {page_num+1}-{img_index+1}",
                 data=image_bytes,
@@ -125,4 +134,4 @@ else:
     st.info("Please upload a PDF to get started.")
 
 st.markdown("---")
-st.caption("v0.2 | Code Generator GPT · Extend with OCR, PowerPoint export, or auto-learning as needed.")
+st.caption("v0.3 | Code Generator GPT · With OCR fallback for scanned/image PDFs. Extend with PPTX export, smarter learning, or batch mode as needed.")
