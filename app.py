@@ -4,6 +4,7 @@ import pandas as pd
 from docx import Document
 import io
 import os
+import fitz  # PyMuPDF
 from PIL import Image
 
 st.set_page_config(page_title="Ultimate PDF Data Extractor", layout="wide")
@@ -16,34 +17,43 @@ uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
 
 if uploaded_file:
     st.success("PDF uploaded! Processing...")
+
+    # --- TEXT & TABLES EXTRACTION (pdfplumber) ---
     with pdfplumber.open(uploaded_file) as pdf:
         all_text = ""
         tables = []
-        images = []
-
         for page_num, page in enumerate(pdf.pages, 1):
-            # Extract text
             text = page.extract_text() or ""
             all_text += f"\n--- Page {page_num} ---\n{text}"
-            
-            # Extract tables
             page_tables = page.extract_tables() or []
             tables.extend(page_tables)
 
-            # Extract images
-            for img_obj in page.images:
-                try:
-                    im = page.to_image(resolution=150)
-                    cropped = im.crop((img_obj["x0"], img_obj["top"], img_obj["x1"], img_obj["bottom"]))
-                    images.append(cropped.original)
-                except Exception as e:
-                    st.warning(f"Image extraction failed on page {page_num}: {e}")
+    # --- IMAGES EXTRACTION (PyMuPDF) ---
+    st.subheader("Extracted Images")
+    images = []
+    doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
+    for page_num in range(len(doc)):
+        for img_index, img in enumerate(doc.get_page_images(page_num)):
+            xref = img[0]
+            base_image = doc.extract_image(xref)
+            image_bytes = base_image["image"]
+            images.append(image_bytes)
+            st.image(image_bytes, caption=f"Page {page_num+1} Image {img_index+1}")
+            # Download button for each image
+            st.download_button(
+                label=f"Download Image {page_num+1}-{img_index+1}",
+                data=image_bytes,
+                file_name=f"pdf_image_{page_num+1}_{img_index+1}.png",
+                mime="image/png"
+            )
+    if not images:
+        st.info("No images found in this PDF.")
 
-    # --- Display and edit extracted text ---
+    # --- TEXT SECTION ---
     st.subheader("Extracted Text (editable)")
     text_area = st.text_area("Edit extracted text:", all_text, height=300)
 
-    # --- Display and edit extracted tables ---
+    # --- TABLES SECTION ---
     st.subheader("Extracted Tables")
     edited_tables = []
     if tables:
@@ -51,7 +61,6 @@ if uploaded_file:
             try:
                 df = pd.DataFrame(table[1:], columns=table[0])
             except Exception:
-                # Fallback: treat all as strings
                 df = pd.DataFrame(table)
             edited_df = st.data_editor(df, num_rows="dynamic", key=f"table_{i}")
             edited_tables.append(edited_df)
@@ -59,23 +68,7 @@ if uploaded_file:
     else:
         st.info("No tables found in this PDF.")
 
-    # --- Display extracted images ---
-    st.subheader("Extracted Images")
-    if images:
-        for idx, img in enumerate(images):
-            st.image(img, caption=f"Image {idx+1}")
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            st.download_button(
-                label=f"Download Image {idx+1}",
-                data=buf.getvalue(),
-                file_name=f"pdf_image_{idx+1}.png",
-                mime="image/png"
-            )
-    else:
-        st.info("No images found in this PDF.")
-
-    # --- Export options ---
+    # --- EXPORT SECTION ---
     st.subheader("Export Extracted Data")
 
     # Export to Word (.docx)
@@ -97,7 +90,8 @@ if uploaded_file:
                         t.cell(i+1, j).text = str(val)
         doc.save(doc_buf)
         st.download_button(
-            "Download Word File", doc_buf.getvalue(), "output.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            "Download Word File", doc_buf.getvalue(), "output.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
 
     # Export to Excel (.xlsx)
@@ -108,14 +102,15 @@ if uploaded_file:
                 sheet_name = f"Table_{idx+1}"
                 df.to_excel(writer, index=False, sheet_name=sheet_name)
         st.download_button(
-            "Download Excel File", excel_buf.getvalue(), "output.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "Download Excel File", excel_buf.getvalue(), "output.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
     # Export text as .txt
     if st.button("Export Text (.txt)"):
         st.download_button("Download Text File", text_area.encode(), "output.txt")
 
-    # --- User feedback ---
+    # --- USER FEEDBACK ---
     st.subheader("Submit Feedback / Corrections")
     feedback = st.text_area("How can we improve this extraction?", key="feedback")
     if st.button("Submit Feedback"):
@@ -127,5 +122,4 @@ else:
     st.info("Please upload a PDF to get started.")
 
 st.markdown("---")
-st.caption("v0.1 | Code Generator GPT · This is a foundation MVP. Expand with OCR, more formats, smarter learning as needed.")
-
+st.caption("v0.2 | Code Generator GPT · Extend with OCR, PowerPoint export, or auto-learning as needed.")
