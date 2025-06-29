@@ -8,6 +8,7 @@ import fitz  # PyMuPDF
 from PIL import Image
 import pytesseract
 from pdf2image import convert_from_bytes
+import re
 
 st.set_page_config(page_title="Ultimate PDF Data Extractor", layout="wide")
 st.title("Ultimate PDF Data Extractor")
@@ -16,6 +17,15 @@ st.title("Ultimate PDF Data Extractor")
 os.makedirs("feedback", exist_ok=True)
 
 uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
+
+def clean_text(text):
+    # Remove non-printable characters
+    text = ''.join(c if c.isprintable() else ' ' for c in text)
+    # Remove control chars except \n
+    text = re.sub(r'[^\x09\x0A\x0D\x20-\x7E\u00A0-\uFFFF]', '', text)
+    # Replace problematic surrogates
+    text = text.encode("utf-8", "ignore").decode("utf-8", "ignore")
+    return text
 
 if uploaded_file:
     st.success("PDF uploaded! Processing...")
@@ -88,15 +98,13 @@ if uploaded_file:
     if st.button("Export to Word (.docx)"):
         doc = Document()
         doc.add_heading("Extracted PDF Text", level=1)
-        doc.add_paragraph(text_area)
+        doc.add_paragraph(clean_text(text_area))
         if edited_tables:
             for idx, df in enumerate(edited_tables):
                 doc.add_heading(f"Table {idx+1}", level=2)
                 t = doc.add_table(rows=df.shape[0]+1, cols=df.shape[1])
-                # Add headers
                 for j, col in enumerate(df.columns):
                     t.cell(0, j).text = str(col)
-                # Add rows
                 for i, row in df.iterrows():
                     for j, val in enumerate(row):
                         t.cell(i+1, j).text = str(val)
@@ -120,18 +128,18 @@ if uploaded_file:
 
     # Export text as .txt
     if st.button("Export Text (.txt)"):
-        st.download_button("Download Text File", text_area.encode(), "output.txt")
+        st.download_button("Download Text File", clean_text(text_area).encode(), "output.txt")
 
     # --- USER FEEDBACK ---
     st.subheader("Submit Feedback / Corrections")
     feedback = st.text_area("How can we improve this extraction?", key="feedback")
     if st.button("Submit Feedback"):
         with open("feedback/feedback.txt", "a", encoding="utf-8") as f:
-            f.write(f"--- Feedback for file: {uploaded_file.name} ---\n{text_area}\n{feedback}\n\n")
+            f.write(f"--- Feedback for file: {uploaded_file.name} ---\n{clean_text(text_area)}\n{clean_text(feedback)}\n\n")
         st.success("Thank you for your feedback! This will help improve future extractions.")
 
 else:
     st.info("Please upload a PDF to get started.")
 
 st.markdown("---")
-st.caption("v0.3 | Code Generator GPT · With OCR fallback for scanned/image PDFs. Extend with PPTX export, smarter learning, or batch mode as needed.")
+st.caption("v0.3 | Code Generator GPT · With OCR fallback for scanned/image PDFs and text cleaning for Word export.")
